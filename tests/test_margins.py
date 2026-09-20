@@ -149,3 +149,38 @@ def test_crossover_refined_between_grid_points():
     m = TransferFunction(validate_plant(STARTUP_ZPK)).magnitude(r.omega_c)
     assert m == pytest.approx(1.0, abs=1e-7)
     assert r.gain_margin == pytest.approx(11.0, rel=1e-6)
+
+
+# 9) 条件稳定对象：相位在中段被抬回 −180° 以上（PM>0），但低频相位穿越处
+#    |G| 仍大于 1（GM 真值 < 1、分贝为负）——总判必须是不稳定。
+COND_STABLE_ZPK = {
+    "type": "zpk",
+    "zeros": [[-1.0, 0.0], [-1.0, 0.0]],
+    "poles": [[0.0, 0.0], [-0.05, 0.0], [-0.05, 0.0], [-30.0, 0.0]],
+    "gain": 1.0,
+    "K": 44.28,
+    "L": 0.0,
+}
+COND_STABLE_GRID = loggrid(1e-4, 1e5, n=2001)
+
+
+def test_conditionally_stable_plant_margins_and_verdict():
+    r = analyze_with(COND_STABLE_ZPK, grid=COND_STABLE_GRID)
+    # 裕度读数钉死，一个都不许变：PM≈+33.6°、ω_c≈1.9、ω_π≈0.056、
+    # GM 真值万分之二量级、分贝 −73 出头
+    assert r.phase_margin_deg == pytest.approx(33.6, abs=0.1)
+    assert r.omega_c == pytest.approx(1.9, abs=0.1)
+    assert r.omega_pi == pytest.approx(0.056, abs=0.001)
+    assert r.gain_margin == pytest.approx(2.1e-4, rel=0.05)
+    assert r.gain_margin_db == pytest.approx(-73.5, abs=0.1)
+    # 但总判必须翻成不稳定
+    assert not r.stable
+
+
+def test_positive_PM_negative_GM_dB_means_unstable():
+    # 专门钉住：PM>0 且 GM<1（分贝<0）时，任一裕度为负即判不稳定
+    r = analyze_with(COND_STABLE_ZPK, grid=COND_STABLE_GRID)
+    assert r.phase_margin_deg > 0.0
+    assert r.gain_margin < 1.0
+    assert r.gain_margin_db < 0.0
+    assert not r.stable
