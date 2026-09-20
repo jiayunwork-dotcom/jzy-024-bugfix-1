@@ -9,7 +9,10 @@
   * 找到区间后在两点之间用对分加密，频率区间相对宽度小到服务钉死的容差
     FREQ_REL_TOL 才报；
   * 找不到有限穿越时一律标 None（「无有限穿越」），绝不填 0 或一个大数；
-  * 对最小相位对象：两个已存在的裕度同号且都为正才判稳定。
+  * 对最小相位对象：已算出的裕度全部严格为正才判稳定——PM 用度数符号
+    （PM > 0°），GM 用真值与 1 比（GM > 1，等价于 GM_dB > 0 dB）。
+    注意 GM 真值 1/|G| 恒为非负数，判正负不能拿它与 0 比，必须与 1 比，
+    否则条件稳定对象（PM>0 而 GM<1）会被误判为稳定。
 """
 
 from __future__ import annotations
@@ -146,10 +149,14 @@ def analyze(tf: TransferFunction, freqs: list[float]) -> MarginResult:
         gm = 1.0 / tf.magnitude(omega_pi)
         gm_db = mag_to_db(gm)
 
-    # 最小相位判据：已有的裕度必须全部为正才算稳定；
+    # 最小相位判据：已算出的裕度必须全部严格为正才算稳定；
     # 两个穿越都不在（有限）网格范围内时，证据不足，不宣称稳定。
-    margins = [m for m in (pm, gm) if m is not None]
-    stable = bool(margins) and all(m > 0.0 for m in margins)
+    # PM 以度为单位，为正即 > 0；GM 是 1/|G| 真值、恒不为负，其正负号
+    # 含义在分贝侧，必须与 1 比（等价于 gm_db > 0），不能与 0 比。
+    checks = [pm > 0.0] if pm is not None else []
+    if gm is not None:
+        checks.append(gm > 1.0)
+    stable = bool(checks) and all(checks)
 
     return MarginResult(
         omega_c=omega_c,

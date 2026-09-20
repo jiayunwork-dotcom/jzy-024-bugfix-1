@@ -139,6 +139,56 @@ def test_db_equals_20_log10_magnitude_everywhere():
     assert mag_to_db(11.0) == pytest.approx(20.0 * math.log10(11.0), abs=1e-12)
 
 
+# 9) 条件稳定对象：PM 为正但 GM 为负（真值 < 1、分贝 < 0）时，总判必须不稳定
+#    对象：(s+1)^2 / [ s (s+0.05)^2 (s+30) ]，开环增益 K=44.28，无延迟。
+#    中频段相位被两个零点抬回 -180° 以上（PM≈+33.6°，ω_c≈1.9），
+#    但更低频（ω_π≈0.056）早已穿过 -180° 且 |G|>>1（GM≈2e-4，约 -73 dB）。
+CONDITIONALLY_STABLE_ZPK = {
+    "type": "zpk",
+    "zeros": [-1.0, -1.0],
+    "poles": [[0.0, 0.0], [-0.05, 0.0], [-0.05, 0.0], [-30.0, 0.0]],
+    "gain": 1.0,
+    "K": 44.28,
+    "L": 0.0,
+}
+
+
+def test_positive_PM_but_negative_GM_is_unstable():
+    grid = loggrid(1e-4, 1e5, n=2001)
+    r = analyze_with(CONDITIONALLY_STABLE_ZPK, grid=grid)
+    # 两个穿越都在、各项读数照实给出（读数本身不变，只翻总判）
+    assert r.has_finite_gain_crossover and r.has_finite_phase_crossover
+    assert r.omega_c == pytest.approx(1.9, abs=0.05)
+    assert r.phase_margin_deg == pytest.approx(33.6, abs=0.5)
+    assert r.phase_margin_deg > 0.0
+    assert r.omega_pi == pytest.approx(0.056, abs=0.002)
+    assert 0.0 < r.gain_margin < 1.0           # 真值为正但不到 1
+    assert r.gain_margin == pytest.approx(2e-4, rel=0.2)
+    assert r.gain_margin_db < 0.0              # 分贝为负
+    assert r.gain_margin_db == pytest.approx(-73.0, abs=2.0)
+    assert r.gain_margin_db == pytest.approx(
+        20.0 * math.log10(r.gain_margin), abs=1e-9
+    )
+    # 关键钉点：任一裕度为负即不稳定
+    assert r.stable is False
+
+
+def test_gain_margin_just_below_unity_is_unstable():
+    # 启动对象加大 K 到 GM 刚好落到 1 以下（分贝为负）：必须不稳
+    r = analyze_with(STARTUP_ZPK, K=11.1)
+    assert 0.0 < r.gain_margin < 1.0
+    assert r.gain_margin_db < 0.0
+    assert r.stable is False
+
+
+def test_gain_margin_just_above_unity_and_positive_PM_is_stable():
+    # 对照组：GM 刚好大于 1、PM 也为正时仍判稳
+    r = analyze_with(STARTUP_ZPK, K=10.9)
+    assert r.gain_margin > 1.0 and r.gain_margin_db > 0.0
+    assert r.phase_margin_deg > 0.0
+    assert r.stable is True
+
+
 # 8) 穿越在网格点之间时必须加密，不能拿邻近点冒充
 def test_crossover_refined_between_grid_points():
     coarse = loggrid(0.01, 100.0, n=31)  # 故意很稀

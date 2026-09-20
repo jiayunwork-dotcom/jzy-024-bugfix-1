@@ -152,3 +152,23 @@ def test_db_consistency_via_http(client):
     body = sweep(client, "startup_plant").json()
     for m, db in zip(body["bode"]["magnitude"], body["bode"]["magnitude_db"]):
         assert db == 20.0 * math.log10(m)
+
+
+def test_conditional_stable_plant_judged_unstable(client):
+    # 条件稳定对象：PM 为正（约 +33.6°）但 GM 为负（约 2e-4 / -73 dB），
+    # 读数照实返回，唯独总判必须是不稳定。
+    plant = {
+        "type": "zpk",
+        "zeros": [-1.0, -1.0],
+        "poles": [[0.0, 0.0], [-0.05, 0.0], [-0.05, 0.0], [-30.0, 0.0]],
+        "gain": 1.0,
+        "K": 44.28,
+        "L": 0.0,
+    }
+    r = sweep(client, plant, grid=loggrid(1e-4, 1e5, 2001))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["phase_margin_deg"] > 0.0
+    assert 0.0 < body["gain_margin"] < 1.0
+    assert body["gain_margin_db"] < 0.0
+    assert body["stable"] is False
